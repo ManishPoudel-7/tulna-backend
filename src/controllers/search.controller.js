@@ -1,6 +1,7 @@
 const { pincodeToCoords } = require("../services/geocode.service");
 const { searchAllPlatforms } = require("../services/quickcommerce.service");
 const { groupProducts } = require("../utils/product.utils");
+const cache = require("../services/cache.service");
 
 // GET /api/search?q=milk&pincode=110019   or   ?q=milk&lat=28.5&lon=77.2
 async function search(req, res) {
@@ -16,9 +17,19 @@ async function search(req, res) {
 
   try {
     const coords = hasCoords ? { lat, lon } : await pincodeToCoords(pincode);
-    const { results, errors } = await searchAllPlatforms(q, coords.lat, coords.lon);
 
-    res.json({ query: q, pincode: pincode ?? null, ...coords, results: groupProducts(results), errors });
+    // Round to ~1 km so nearby pincodes share cached results
+    const cacheKey = `${q.toLowerCase()}|${Number(coords.lat).toFixed(2)}|${Number(coords.lon).toFixed(2)}`;
+    const cached = cache.get(cacheKey);
+    if (cached) {
+      return res.json({ ...cached, pincode: pincode ?? cached.pincode, cached: true });
+    }
+
+    const { results, errors } = await searchAllPlatforms(q, coords.lat, coords.lon);
+    const payload = { query: q, pincode: pincode ?? null, ...coords, results: groupProducts(results, q), errors };
+
+    cache.set(cacheKey, payload);
+    res.json(payload);
   } catch (err) {
     res.status(502).json({ error: err.message });
   }

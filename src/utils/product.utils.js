@@ -39,13 +39,26 @@ function displayName(item) {
   return item.name.toLowerCase().startsWith(brand.toLowerCase()) ? item.name : `${brand} ${item.name}`.trim();
 }
 
-// [{ platform, products }] -> one entry per product with in-stock prices from every app, cheapest first
-function groupProducts(platformResults) {
+// True if the item's brand+name contains any query word of length >= 3.
+// Skips the length-2 words and NOISE so "ml", "l", "pack", "the" don't widen the net.
+function matchesQuery(item, q) {
+  if (!q) return true;
+  const text = `${item.brand ?? ""} ${item.name ?? ""}`.toLowerCase();
+  const words = q.toLowerCase().replace(/[^a-z0-9 ]/g, " ").split(/\s+/)
+    .filter((w) => w.length >= 3 && !NOISE.has(w));
+  if (words.length === 0) return true; // query was all noise; keep everything
+  return words.some((w) => text.includes(w));
+}
+
+// [{ platform, products }] -> one entry per product with in-stock prices from every app, cheapest first.
+// `query` filters out off-topic results returned by the upstream API.
+function groupProducts(platformResults, query) {
   const map = {};
 
   for (const { platform, products } of platformResults) {
     for (const item of products) {
       if (!item.available || item.offer_price == null) continue; // hide out-of-stock
+      if (!matchesQuery(item, query)) continue;                   // hide off-topic results
 
       const size = parseSize(item.quantity);
       const key = matchKey(item, size);

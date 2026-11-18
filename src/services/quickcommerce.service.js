@@ -3,6 +3,12 @@ const { getJson } = require("../utils/http");
 
 const BASE_URL = "https://api.quickcommerceapi.com/v1/search";
 
+// A 4xx usually means "this platform doesn't serve this location".
+// Treat it as empty results rather than a user-facing error.
+function isNotAvailableHere(message) {
+  return /^HTTP 4\d\d$/.test(message || "");
+}
+
 // Searches every platform in parallel.
 // Returns [{ platform, products }] for successes and [{ platform, message }] for failures.
 async function searchAllPlatforms(q, lat, lon) {
@@ -20,9 +26,14 @@ async function searchAllPlatforms(q, lat, lon) {
     const platform = PLATFORMS[ids[i]];
     if (r.status === "fulfilled") {
       results.push({ platform, products: r.value?.data?.products ?? [] });
-    } else {
-      errors.push({ platform, message: r.reason.name === "TimeoutError" ? "timeout" : r.reason.message });
+      return;
     }
+    const msg = r.reason.name === "TimeoutError" ? "timeout" : r.reason.message;
+    if (isNotAvailableHere(msg)) {
+      results.push({ platform, products: [] }); // silent: platform not available here
+      return;
+    }
+    errors.push({ platform, message: msg });
   });
 
   return { results, errors };
